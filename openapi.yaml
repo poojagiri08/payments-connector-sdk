@@ -1,0 +1,131 @@
+openapi: 3.0.3
+info:
+  title: Payments Connector - Canonical API
+  version: "0.1.0"
+servers:
+  - url: http://localhost:8000
+paths:
+  /payments:
+    post:
+      summary: Create a payment (authorize or capture immediately)
+      operationId: createPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: Payment response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+  /payments/{payment_id}/capture:
+    post:
+      summary: Capture an authorized payment
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+      responses:
+        '200':
+          description: Capture response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+  /payments/{payment_id}/refund:
+    post:
+      summary: Refund a captured payment
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+      responses:
+        '200':
+          description: Refund response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+  /webhooks/psp:
+    post:
+      summary: Endpoint for PSP webhooks (to be normalized by connectors)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Accepted
+components:
+  schemas:
+    PaymentRequest:
+      type: object
+      required:
+        - amount
+        - currency
+        - payment_method
+      properties:
+        amount:
+          type: integer
+          description: Amount in minor units (e.g., cents)
+        currency:
+          type: string
+          example: "USD"
+        merchant_id:
+          type: string
+        idempotency_key:
+          type: string
+        payment_method:
+          type: object
+          properties:
+            type:
+              type: string
+            token:
+              type: string
+            metadata:
+              type: object
+    PaymentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          description: "authorized|captured|failed|pending_mfa|voided|refunded"
+        provider_transaction_id:
+          type: string
+        provider_response_code:
+          type: string
+        mfa:
+          type: object
+          description: "If MFA/3DS required, contains challenge info"
+        raw_provider_response:
+          type: object
