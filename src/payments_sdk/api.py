@@ -15,6 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from .connectors.base import (
     PaymentRequest,
     PaymentResponse,
+    ThreeDSCompleteRequest,
     LocalPaymentRequest,
     LocalPaymentMethod,
     LocalPaymentMethodType,
@@ -324,6 +325,64 @@ async def refund_payment(
     validated_payment_id = validate_payment_id(payment_id)
     connector = get_connector(x_provider)
     resp = connector.refund(validated_payment_id, body.amount)
+    return resp.model_dump()
+
+
+@app.post("/payments/{payment_id}/void")
+@limiter.limit("10/minute")
+async def void_payment(
+    request: Request,
+    payment_id: str,
+    x_provider: Optional[str] = Header(default="stripe"),
+    api_key: str = Depends(verify_api_key),
+    x_idempotency_key: str = Header(...)
+):
+    validated_payment_id = validate_payment_id(payment_id)
+    connector = get_connector(x_provider)
+    resp = connector.void(validated_payment_id)
+    return resp.model_dump()
+
+
+@app.get("/payments/{payment_id}/3ds")
+@limiter.limit("20/minute")
+async def get_3ds_challenge(
+    request: Request,
+    payment_id: str,
+    x_provider: Optional[str] = Header(default="stripe"),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Retrieve 3DS challenge data for a payment requiring MFA authentication.
+    
+    Returns challenge information including redirect URLs and client secrets
+    needed for the frontend to complete the 3DS flow.
+    """
+    validated_payment_id = validate_payment_id(payment_id)
+    connector = get_connector(x_provider)
+    resp = connector.get_3ds_challenge(validated_payment_id)
+    return resp.model_dump()
+
+
+@app.post("/payments/{payment_id}/3ds/complete")
+@limiter.limit("10/minute")
+async def complete_3ds_authentication(
+    request: Request,
+    payment_id: str,
+    body: Optional[ThreeDSCompleteRequest] = None,
+    x_provider: Optional[str] = Header(default="stripe"),
+    api_key: str = Depends(verify_api_key),
+    x_idempotency_key: str = Header(...)
+):
+    """
+    Complete 3DS authentication for a payment.
+    
+    This endpoint should be called after the frontend has completed the 3DS challenge.
+    It transitions the payment from pending_mfa to authorized (or captured/failed).
+    """
+    validated_payment_id = validate_payment_id(payment_id)
+    connector = get_connector(x_provider)
+    authentication_result = body.authentication_result if body else None
+    resp = connector.complete_3ds(validated_payment_id, authentication_result)
     return resp.model_dump()
 
 

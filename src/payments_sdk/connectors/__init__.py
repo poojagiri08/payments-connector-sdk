@@ -16,6 +16,10 @@ from .base import (
     get_supported_payment_methods,
     is_async_payment_method,
     is_redirect_payment_method,
+    MFAData,
+    ThreeDSChallengeData,
+    ThreeDSChallengeResponse,
+    ThreeDSCompleteRequest,
 )
 from .stripe_connector import StripeConnector
 
@@ -37,6 +41,11 @@ __all__ = [
     "get_supported_payment_methods",
     "is_async_payment_method",
     "is_redirect_payment_method",
+    # 3DS/MFA
+    "MFAData",
+    "ThreeDSChallengeData",
+    "ThreeDSChallengeResponse",
+    "ThreeDSCompleteRequest",
     # Connectors
     "StripeConnector",
 ]
