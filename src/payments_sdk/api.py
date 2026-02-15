@@ -232,6 +232,21 @@ async def refund_payment(
     return resp.model_dump()
 
 
+@app.post("/payments/{payment_id}/void")
+@limiter.limit("10/minute")
+async def void_payment(
+    request: Request,
+    payment_id: str,
+    x_provider: Optional[str] = Header(default="stripe"),
+    api_key: str = Depends(verify_api_key),
+    x_idempotency_key: str = Header(...)
+):
+    validated_payment_id = validate_payment_id(payment_id)
+    connector = get_connector(x_provider)
+    resp = connector.void(validated_payment_id)
+    return resp.model_dump()
+
+
 @app.post("/webhooks/psp")
 @limiter.limit("100/minute")
 async def psp_webhook(
