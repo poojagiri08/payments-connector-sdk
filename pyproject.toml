@@ -16,6 +16,9 @@ dependencies = [
     "httpx==0.24.0",
     "starlette==0.38.6",
     "slowapi==0.1.9",
+    "sqlalchemy==2.0.23",
+    "alembic==1.13.1",
+    "aiosqlite==0.19.0",
 ]
 
 [project.optional-dependencies]
