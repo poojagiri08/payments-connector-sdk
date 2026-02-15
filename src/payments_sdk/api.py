@@ -1,23 +1,20 @@
 import os
 import re
 import logging
-import secrets
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Header, HTTPException, Depends, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, Request, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Any, List
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.ext.asyncio import AsyncSession
 from .connectors.base import PaymentRequest, PaymentResponse, ThreeDSCompleteRequest
 from .connectors.stripe_connector import StripeConnector
 from .database import get_db, init_db, close_db
 from .services import PaymentService
+from .auth import verify_api_key, limiter
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +39,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Payments Connector - Reference API", lifespan=lifespan)
 
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 
 
@@ -66,6 +62,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+# Include reconciliation router - import here to avoid circular dependency
+from .reconciliation.api import router as reconciliation_router
+app.include_router(reconciliation_router)
+
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
 allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
 
@@ -76,19 +76,6 @@ app.add_middleware(
     allow_methods=["POST", "GET"],
     allow_headers=["X-Provider", "Authorization", "Content-Type", "X-Idempotency-Key"],
 )
-
-security = HTTPBearer()
-
-
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:
-    api_key = credentials.credentials
-    expected_key = os.getenv("API_KEY")
-    if not expected_key:
-        logger.error("API_KEY environment variable is not configured")
-        raise HTTPException(status_code=500, detail="Server configuration error")
-    if not secrets.compare_digest(api_key, expected_key):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return api_key
 
 
 def get_connector(x_provider: str = "stripe") -> StripeConnector:

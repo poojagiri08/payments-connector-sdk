@@ -12,3 +12,15 @@ from .database import (
     get_db,
 )
 from .services import PaymentService
+
+# Reconciliation exports
+from .reconciliation import (
+    ReconciliationService,
+    ReconciliationReport,
+    ReconciliationRequest,
+    ReconciliationStatus,
+    DiscrepancyType,
+    Reconciler,
+    ReportGenerator,
+    get_psp_fetcher,
+)
