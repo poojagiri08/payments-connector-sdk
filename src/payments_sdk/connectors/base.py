@@ -1,16 +1,18 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+MAX_AMOUNT = 99999999
 
 # Canonical models
 class PaymentRequest(BaseModel):
-    amount: int  # minor units
-    currency: str
+    amount: int = Field(..., gt=0, le=MAX_AMOUNT, description="Amount in minor units")
+    currency: str = Field(..., min_length=3, max_length=3)
     merchant_id: Optional[str] = None
-    idempotency_key: Optional[str] = None
+    idempotency_key: str = Field(..., min_length=1, max_length=255)
     payment_method: Dict[str, Any]
-    intent: Optional[str] = "authorize"  # or "capture_immediate"
-    metadata: Optional[Dict[str, Any]] = {}
+    intent: Optional[str] = Field(default="authorize", pattern="^(authorize|capture_immediate)$")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class PaymentResponse(BaseModel):
     id: Optional[str]
