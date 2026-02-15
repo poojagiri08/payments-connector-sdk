@@ -11,6 +11,9 @@ from .base import (
     REGION_PAYMENT_METHODS,
     is_async_payment_method,
     is_redirect_payment_method,
+    MFAData,
+    ThreeDSChallengeData,
+    ThreeDSChallengeResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,7 +164,7 @@ class StripeConnector(ConnectorBase):
             status = status_map.get(pi.status, "pending")
             mfa = None
             if pi.status == "requires_action":
-                mfa = {"type": "3ds", "redirect_url": f"/payments/{pi.id}/3ds"}
+                mfa = self._build_mfa_data(pi)
             return PaymentResponse(
                 id=pi.id,
                 status=status,
@@ -171,6 +174,33 @@ class StripeConnector(ConnectorBase):
             )
         except stripe.error.StripeError as e:
             return self._handle_stripe_error(e)
+
+    def _build_mfa_data(self, payment_intent) -> MFAData:
+        """Build MFA data structure from Stripe PaymentIntent requiring action"""
+        pi_dict = payment_intent.to_dict() if hasattr(payment_intent, 'to_dict') else payment_intent
+        next_action = pi_dict.get("next_action", {})
+        next_action_type = next_action.get("type") if next_action else None
+        
+        challenge_data = ThreeDSChallengeData(
+            client_secret=pi_dict.get("client_secret"),
+            transaction_id=payment_intent.id,
+            version="2.0"  # Default to 3DS2
+        )
+        
+        # Handle different next_action types from Stripe
+        if next_action_type == "redirect_to_url":
+            redirect_info = next_action.get("redirect_to_url", {})
+            challenge_data.acs_url = redirect_info.get("url")
+        elif next_action_type == "use_stripe_sdk":
+            # For use_stripe_sdk, the client_secret is used by Stripe.js
+            pass
+        
+        return MFAData(
+            type="3ds",
+            redirect_url=f"/payments/{payment_intent.id}/3ds",
+            challenge_data=challenge_data,
+            next_action_type=next_action_type
+        )
 
     def capture(self, provider_transaction_id: str, amount: int) -> PaymentResponse:
         self._configure_stripe()
@@ -229,6 +259,7 @@ class StripeConnector(ConnectorBase):
             raise ValueError("Failed to parse webhook") from e
         return {"type": event.type, "provider": "stripe", "payload": self._sanitize_response(event.to_dict())}
 
+<<<<<<< HEAD
     def process_local_payment(self, request: LocalPaymentRequest) -> PaymentResponse:
         """
         Process a local payment method using Stripe's PaymentIntents API.
@@ -520,3 +551,108 @@ class StripeConnector(ConnectorBase):
         
         # Return all Stripe supported methods
         return list(SUPPORTED_LOCAL_PAYMENT_METHODS)
+
+    def get_3ds_challenge(self, payment_id: str) -> ThreeDSChallengeResponse:
+        """
+        Retrieve 3DS challenge data for a payment that requires MFA.
+        Fetches the PaymentIntent from Stripe and returns challenge information.
+        """
+        self._configure_stripe()
+        try:
+            pi = stripe.PaymentIntent.retrieve(payment_id)
+            
+            # Map Stripe status to our canonical status
+            status_map = {
+                "requires_action": "pending_mfa",
+                "requires_capture": "authorized",
+                "succeeded": "captured",
+                "requires_payment_method": "failed",
+                "canceled": "voided",
+            }
+            status = status_map.get(pi.status, pi.status)
+            
+            mfa = None
+            if pi.status == "requires_action":
+                mfa = self._build_mfa_data(pi)
+            
+            return ThreeDSChallengeResponse(
+                payment_id=pi.id,
+                status=status,
+                mfa=mfa,
+                raw_provider_response=self._sanitize_response(pi.to_dict())
+            )
+        except stripe.error.StripeError as e:
+            logger.error(f"Failed to retrieve 3DS challenge for {payment_id}: {type(e).__name__}")
+            error_mapping = {
+                stripe.error.InvalidRequestError: "invalid_request",
+                stripe.error.AuthenticationError: "authentication_error",
+                stripe.error.APIConnectionError: "connection_error",
+                stripe.error.APIError: "api_error",
+            }
+            error_type = error_mapping.get(type(e), "payment_error")
+            return ThreeDSChallengeResponse(
+                payment_id=payment_id,
+                status="failed",
+                mfa=None,
+                raw_provider_response={"error_type": error_type, "message": "Failed to retrieve 3DS challenge"}
+            )
+
+    def complete_3ds(self, payment_id: str, authentication_result: Optional[str] = None) -> PaymentResponse:
+        """
+        Complete 3DS authentication for a payment.
+        This confirms the PaymentIntent after the 3DS challenge is completed by the frontend.
+        Transitions payment from pending_mfa to authorized (or captured if capture_method is automatic).
+        """
+        self._configure_stripe()
+        try:
+            # First retrieve the PaymentIntent to check its current status
+            pi = stripe.PaymentIntent.retrieve(payment_id)
+            
+            if pi.status == "requires_action":
+                # Confirm the PaymentIntent to complete the 3DS flow
+                # The frontend should have already handled the 3DS challenge
+                pi = stripe.PaymentIntent.confirm(payment_id)
+            elif pi.status in ["requires_capture", "succeeded"]:
+                # Already completed - return current status
+                logger.info(f"PaymentIntent {payment_id} already completed with status {pi.status}")
+            elif pi.status == "requires_payment_method":
+                # 3DS authentication failed - payment method needs to be updated
+                return PaymentResponse(
+                    id=pi.id,
+                    status="failed",
+                    provider_transaction_id=pi.id,
+                    provider_response_code="3ds_authentication_failed",
+                    raw_provider_response=self._sanitize_response(pi.to_dict())
+                )
+            elif pi.status == "canceled":
+                return PaymentResponse(
+                    id=pi.id,
+                    status="voided",
+                    provider_transaction_id=pi.id,
+                    raw_provider_response=self._sanitize_response(pi.to_dict())
+                )
+            
+            # Map final status
+            status_map = {
+                "requires_capture": "authorized",
+                "requires_action": "pending_mfa",
+                "succeeded": "captured",
+                "requires_payment_method": "failed",
+                "canceled": "voided",
+            }
+            status = status_map.get(pi.status, "pending")
+            
+            # Check if still requires action after confirm attempt
+            mfa = None
+            if pi.status == "requires_action":
+                mfa = self._build_mfa_data(pi)
+            
+            return PaymentResponse(
+                id=pi.id,
+                status=status,
+                provider_transaction_id=pi.id,
+                raw_provider_response=self._sanitize_response(pi.to_dict()),
+                mfa=mfa
+            )
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)

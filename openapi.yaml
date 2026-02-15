@@ -72,6 +72,90 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentResponse'
+  /payments/{payment_id}/void:
+    post:
+      summary: Void an authorized payment
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Void response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+  /payments/{payment_id}/3ds:
+    get:
+      summary: Retrieve 3DS challenge data for MFA authentication
+      description: |
+        Retrieves the 3DS challenge information for a payment that requires MFA authentication.
+        Returns challenge data including redirect URLs and client secrets needed for the frontend
+        to complete the 3DS flow.
+      operationId: get3dsChallenge
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The payment ID (Stripe PaymentIntent ID)
+      responses:
+        '200':
+          description: 3DS challenge data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreeDSChallengeResponse'
+        '400':
+          description: Invalid payment ID format
+        '401':
+          description: Invalid API key
+        '404':
+          description: Payment not found
+  /payments/{payment_id}/3ds/complete:
+    post:
+      summary: Complete 3DS authentication
+      description: |
+        Completes the 3DS authentication flow for a payment. This should be called after
+        the frontend has successfully handled the 3DS challenge. Transitions the payment
+        from pending_mfa to authorized (or captured if auto-capture is enabled).
+      operationId: complete3dsAuthentication
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The payment ID (Stripe PaymentIntent ID)
+        - name: X-Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Idempotency key for the request
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreeDSCompleteRequest'
+      responses:
+        '200':
+          description: Payment response after 3DS completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: Invalid payment ID format or 3DS authentication failed
+        '401':
+          description: Invalid API key
+        '404':
+          description: Payment not found
   /webhooks/psp:
     post:
       summary: Endpoint for PSP webhooks (to be normalized by connectors)
@@ -125,7 +209,62 @@ components:
         provider_response_code:
           type: string
         mfa:
-          type: object
-          description: "If MFA/3DS required, contains challenge info"
+          $ref: '#/components/schemas/MFAData'
         raw_provider_response:
           type: object
+    MFAData:
+      type: object
+      description: MFA/3DS data when authentication is required
+      properties:
+        type:
+          type: string
+          description: Type of MFA required (e.g., '3ds')
+          example: "3ds"
+        redirect_url:
+          type: string
+          description: URL path for 3DS challenge retrieval
+          example: "/payments/pi_xxx/3ds"
+        challenge_data:
+          $ref: '#/components/schemas/ThreeDSChallengeData'
+        next_action_type:
+          type: string
+          description: Provider-specific next action type (e.g., 'redirect_to_url', 'use_stripe_sdk')
+    ThreeDSChallengeData:
+      type: object
+      description: 3DS challenge data structure
+      properties:
+        acs_url:
+          type: string
+          description: Access Control Server URL for 3DS redirect
+        client_secret:
+          type: string
+          description: Client secret for frontend 3DS handling (Stripe.js)
+        transaction_id:
+          type: string
+          description: 3DS transaction identifier
+        version:
+          type: string
+          description: 3DS version (1.0, 2.0, 2.1, etc.)
+          example: "2.0"
+    ThreeDSChallengeResponse:
+      type: object
+      description: Response for GET /payments/{payment_id}/3ds endpoint
+      properties:
+        payment_id:
+          type: string
+          description: Payment identifier
+        status:
+          type: string
+          description: Current 3DS challenge status (pending_mfa, authorized, captured, failed)
+        mfa:
+          $ref: '#/components/schemas/MFAData'
+        raw_provider_response:
+          type: object
+          description: Sanitized provider response
+    ThreeDSCompleteRequest:
+      type: object
+      description: Request body for completing 3DS authentication
+      properties:
+        authentication_result:
+          type: string
+          description: Optional authentication result from frontend (for certain 3DS flows)
