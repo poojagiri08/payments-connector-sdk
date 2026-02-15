@@ -14,7 +14,7 @@ dependencies = [
     "pydantic==2.4.0",
     "stripe==5.0.0",
     "httpx==0.24.0",
-    "starlette==0.38.6",
+    "starlette>=0.40.0,<0.42.0",
     "slowapi==0.1.9",
 ]
 
