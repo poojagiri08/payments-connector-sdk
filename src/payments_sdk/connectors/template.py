@@ -7,8 +7,11 @@ class TemplateConnector(ConnectorBase):
     """
 
     def __init__(self, api_key: str):
-        self.api_key = api_key
+        self._api_key = api_key
         # configure your PSP SDK/client here
+
+    def __repr__(self):
+        return f"<TemplateConnector configured={bool(self._api_key)}>"
 
     def authorize(self, request: PaymentRequest) -> PaymentResponse:
         # Translate PaymentRequest -> PSP request
