@@ -1,11 +1,12 @@
 import os
 import re
 import logging
+import secrets
 from fastapi import FastAPI, Request, Header, HTTPException, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Optional, Any
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
 from slowapi import Limiter
@@ -62,7 +63,7 @@ async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(se
     if not expected_key:
         logger.error("API_KEY environment variable is not configured")
         raise HTTPException(status_code=500, detail="Server configuration error")
-    if api_key != expected_key:
+    if not secrets.compare_digest(api_key, expected_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return api_key
 
@@ -90,11 +91,55 @@ MAX_AMOUNT = 99999999
 MIN_AMOUNT = 1
 MAX_DECIMAL_PLACES = 2
 
+ALLOWED_PAYMENT_METHOD_FIELDS = frozenset(['token', 'type'])
+MAX_METADATA_KEYS = 50
+MAX_METADATA_KEY_LENGTH = 40
+MAX_METADATA_VALUE_LENGTH = 500
+MAX_METADATA_TOTAL_SIZE = 8192
+
+
+class PaymentMethodModel(BaseModel):
+    token: str = Field(..., min_length=1, max_length=255)
+    type: Optional[str] = Field(default=None, max_length=50)
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_allowed_fields(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            extra_fields = set(values.keys()) - ALLOWED_PAYMENT_METHOD_FIELDS
+            if extra_fields:
+                raise ValueError(f'Unexpected fields in payment_method: {extra_fields}')
+        return values
+
+
+def validate_metadata(metadata: Optional[dict]) -> Optional[dict]:
+    if metadata is None:
+        return None
+    if not isinstance(metadata, dict):
+        raise ValueError('metadata must be a dictionary')
+    if len(metadata) > MAX_METADATA_KEYS:
+        raise ValueError(f'metadata cannot have more than {MAX_METADATA_KEYS} keys')
+    total_size = 0
+    for key, value in metadata.items():
+        if not isinstance(key, str):
+            raise ValueError('metadata keys must be strings')
+        if len(key) > MAX_METADATA_KEY_LENGTH:
+            raise ValueError(f'metadata key length cannot exceed {MAX_METADATA_KEY_LENGTH} characters')
+        if not isinstance(value, (str, int, float, bool, type(None))):
+            raise ValueError('metadata values must be strings, numbers, booleans, or null')
+        value_str = str(value) if value is not None else ''
+        if len(value_str) > MAX_METADATA_VALUE_LENGTH:
+            raise ValueError(f'metadata value length cannot exceed {MAX_METADATA_VALUE_LENGTH} characters')
+        total_size += len(key) + len(value_str)
+    if total_size > MAX_METADATA_TOTAL_SIZE:
+        raise ValueError(f'metadata total size cannot exceed {MAX_METADATA_TOTAL_SIZE} bytes')
+    return metadata
+
 
 class CreatePaymentBody(BaseModel):
     amount: int = Field(..., gt=0, le=MAX_AMOUNT, description="Amount in minor units (e.g., cents)")
     currency: str = Field(..., min_length=3, max_length=3)
-    payment_method: dict
+    payment_method: PaymentMethodModel
     merchant_id: Optional[str] = None
     idempotency_key: str = Field(..., min_length=1, max_length=255)
     intent: Optional[str] = Field(default="authorize", pattern="^(authorize|capture_immediate)$")
@@ -115,6 +160,11 @@ class CreatePaymentBody(BaseModel):
         if not v.isalpha():
             raise ValueError('Currency must contain only letters')
         return v.upper()
+
+    @field_validator('metadata')
+    @classmethod
+    def validate_metadata_field(cls, v: Optional[dict]) -> Optional[dict]:
+        return validate_metadata(v)
 
 
 class CaptureRefundBody(BaseModel):
@@ -143,7 +193,9 @@ async def create_payment(
     idempotency = x_idempotency_key or body.idempotency_key
     if not idempotency:
         raise HTTPException(status_code=400, detail="Idempotency key is required")
-    req = PaymentRequest(**body.model_dump())
+    body_data = body.model_dump()
+    body_data['payment_method'] = body.payment_method.model_dump(exclude_none=True)
+    req = PaymentRequest(**body_data)
     resp: PaymentResponse = connector.authorize(req)
     return resp.model_dump()
 
@@ -195,6 +247,6 @@ async def psp_webhook(
         logger.warning(f"Webhook validation failed: {e}")
         raise HTTPException(status_code=400, detail="Webhook validation failed")
     except Exception:
-        logger.error("Unexpected error processing webhook", exc_info=True)
+        logger.error("Unexpected error processing webhook")
         raise HTTPException(status_code=400, detail="Webhook processing failed")
     return {"accepted": True, "event": event}

@@ -48,7 +48,7 @@ class StripeConnector(ConnectorBase):
         return sanitized
 
     def _handle_stripe_error(self, e: stripe.error.StripeError) -> PaymentResponse:
-        logger.error(f"Stripe error occurred: {type(e).__name__}", exc_info=True)
+        logger.error(f"Stripe error occurred: {type(e).__name__}")
         error_mapping = {
             stripe.error.CardError: "card_error",
             stripe.error.RateLimitError: "rate_limit",
@@ -150,9 +150,9 @@ class StripeConnector(ConnectorBase):
         try:
             event = stripe.Webhook.construct_event(payload=body, sig_header=sig_header, secret=webhook_secret)
         except stripe.error.SignatureVerificationError as e:
-            logger.warning("Invalid webhook signature received", exc_info=True)
+            logger.warning("Invalid webhook signature received")
             raise ValueError("Invalid webhook signature") from e
         except Exception as e:
-            logger.error("Webhook parsing error", exc_info=True)
+            logger.error("Webhook parsing error")
             raise ValueError("Failed to parse webhook") from e
         return {"type": event.type, "provider": "stripe", "payload": self._sanitize_response(event.to_dict())}
