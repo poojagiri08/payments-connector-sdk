@@ -340,7 +340,7 @@ class ConnectorBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def process_local_payment(self, request: 'LocalPaymentRequest') -> PaymentResponse:
+    def process_local_payment(self, request: LocalPaymentRequest) -> PaymentResponse:
         """
         Process a local payment method (bank transfer, boleto, iDEAL, etc.).
         
@@ -365,7 +365,7 @@ class ConnectorBase(ABC):
         return list(LocalPaymentMethodType)
 
     @abstractmethod
-    def get_3ds_challenge(self, payment_id: str) -> 'ThreeDSChallengeResponse':
+    def get_3ds_challenge(self, payment_id: str) -> ThreeDSChallengeResponse:
         """
         Retrieve 3DS challenge data for a payment that requires MFA.
         Returns challenge information needed for frontend to complete 3DS flow.

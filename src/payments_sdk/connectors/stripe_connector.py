@@ -13,7 +13,7 @@ from .base import (
     is_redirect_payment_method,
     MFAData,
     ThreeDSChallengeData,
-    ThreeDSChallengeResponse
+    ThreeDSChallengeResponse,
 )
 
 logger = logging.getLogger(__name__)
