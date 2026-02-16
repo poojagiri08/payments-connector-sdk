@@ -259,7 +259,6 @@ class StripeConnector(ConnectorBase):
             raise ValueError("Failed to parse webhook") from e
         return {"type": event.type, "provider": "stripe", "payload": self._sanitize_response(event.to_dict())}
 
-<<<<<<< HEAD
     def process_local_payment(self, request: LocalPaymentRequest) -> PaymentResponse:
         """
         Process a local payment method using Stripe's PaymentIntents API.
