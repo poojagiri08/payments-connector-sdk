@@ -22,6 +22,12 @@ from .base import (
     ThreeDSCompleteRequest,
 )
 from .stripe_connector import StripeConnector
+from .simulator_connector import (
+    SimulatorConnector,
+    SimulatorConfig,
+    SimulatorScenario,
+    SimulatedTransaction,
+)
 
 __all__ = [
     # Base classes and models
@@ -48,4 +54,8 @@ __all__ = [
     "ThreeDSCompleteRequest",
     # Connectors
     "StripeConnector",
+    "SimulatorConnector",
+    "SimulatorConfig",
+    "SimulatorScenario",
+    "SimulatedTransaction",
 ]
